@@ -1,5 +1,6 @@
 import json
 import random
+import re
 from itertools import permutations
 
 from datasets import Dataset
@@ -98,10 +99,16 @@ class DataProcessor:
         epochs=1,
         seed=42,
         chat_format=None,
+        max_samples=None,
     ):
         random.seed(seed)
-        with open(dataset_path, "r", encoding="utf-8") as f:
-            self.raw_dataset = json.load(f)
+        self.raw_dataset = self.load_dataset(dataset_path)
+        if max_samples is not None:
+            max_samples = int(max_samples)
+            if max_samples > 0:
+                self.raw_dataset = self.raw_dataset[:max_samples]
+        if not self.raw_dataset:
+            raise ValueError(f"No data rows found in dataset: {dataset_path}")
 
         if mode == DataProcessorMode.DCOT:
             print("DCoT Data")
@@ -117,6 +124,34 @@ class DataProcessor:
             raise ValueError(
                 "Invalid mode. Choose from 'dcot', 'cot'"
             )
+
+    @staticmethod
+    def load_dataset(dataset_path):
+        with open(dataset_path, "r", encoding="utf-8") as f:
+            text = f.read()
+
+        # First try full JSON (array or object), then fallback to JSONL.
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [x for x in parsed if isinstance(x, dict)]
+            if isinstance(parsed, dict):
+                return [parsed]
+        except json.JSONDecodeError:
+            pass
+
+        rows = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                rows.append(obj)
+        return rows
 
     def get_hf_dataset(self):
         """
@@ -149,13 +184,15 @@ class DataProcessor:
         for _ in range(epochs):
             epoch_samples = []
             for x in dataset:
-                list_cots = [cot["cot"] for cot in x["correct_cots"]]
+                list_cots = self.extract_cots(x)
+                if not list_cots:
+                    continue
                 ccot_pairs = self.get_permutations(list_cots)
                 for ccot in ccot_pairs:
-                    question = x["question"]
+                    question = x.get("question", "")
                     context = None if "context" not in x else x["context"]
                     options = None if "options" not in x else x["options"]
-                    answer = x["answer"]
+                    answer = self.extract_answer(x)
                     data_point = self.create_ccot_data_point(
                         question, context, options, ccot, answer, eos, chat_format
                     )
@@ -169,16 +206,19 @@ class DataProcessor:
         for e in range(epochs):
             epoch_samples = []
             for x in dataset:
-                for cot in x["correct_cots"]:
-                    question = x["question"]
+                list_cots = self.extract_cots(x)
+                if not list_cots:
+                    continue
+                for cot in list_cots:
+                    question = x.get("question", "")
                     context = None if "context" not in x else x["context"]
                     options = None if "options" not in x else x["options"]
-                    answer = x["answer"]
+                    answer = self.extract_answer(x)
                     data_point = self.create_ccot_data_point(
                         question,
                         context,
                         options,
-                        [cot["cot"]],
+                        [cot],
                         answer,
                         eos,
                         chat_format,
@@ -188,6 +228,115 @@ class DataProcessor:
             cot_dataset.extend(epoch_samples)
         return cot_dataset
 
+    def extract_cots(self, row):
+        # Native DCoT format from this repo.
+        if isinstance(row.get("correct_cots"), list):
+            cots = []
+            for cot in row["correct_cots"]:
+                cot_text = self.coerce_rationale_text(
+                    cot.get("cot") if isinstance(cot, dict) else cot
+                )
+                if cot_text:
+                    cots.append(cot_text)
+            return cots
+
+        # BRIDGE method-result format.
+        rationale = row.get("response_rationale")
+        if rationale is None:
+            rationale = row.get("rationale")
+        if rationale is None and isinstance(row.get("response_payload"), dict):
+            rationale = row["response_payload"].get("rationale")
+        return self.rationale_to_cots(rationale)
+
+    def rationale_to_cots(self, rationale):
+        if rationale is None:
+            return []
+        if isinstance(rationale, str):
+            txt = rationale.strip()
+            return [txt] if txt else []
+        if isinstance(rationale, list):
+            out = []
+            for item in rationale:
+                txt = self.coerce_rationale_text(item)
+                if txt:
+                    out.append(txt)
+            return out
+        if isinstance(rationale, dict):
+            # If keys are Answer1/Answer2... treat them as multiple chains.
+            answer_items = []
+            for key, value in rationale.items():
+                m = re.match(r"(?i)^answer\s*([0-9]+)$", str(key).strip())
+                if m is not None:
+                    answer_items.append((int(m.group(1)), value))
+            if answer_items:
+                answer_items.sort(key=lambda x: x[0])
+                out = []
+                for _, value in answer_items:
+                    txt = self.coerce_rationale_text(value)
+                    if txt:
+                        out.append(txt)
+                return out
+            # Otherwise this is likely a structured single rationale.
+            txt = self.coerce_rationale_text(rationale)
+            return [txt] if txt else []
+        return [str(rationale)]
+
+    @staticmethod
+    def coerce_rationale_text(value):
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            # Keep key/value signal instead of dumping dense JSON.
+            lines = []
+            for key, val in value.items():
+                if isinstance(val, (dict, list)):
+                    val = json.dumps(val, ensure_ascii=False)
+                lines.append(f"{key}: {val}")
+            return "\n".join(lines).strip()
+        if isinstance(value, list):
+            lines = []
+            for x in value:
+                lines.append(str(x))
+            return "\n".join(lines).strip()
+        return str(value).strip()
+
+    def extract_answer(self, row):
+        for key in [
+            "answer",
+            "response_ans",
+            "ans",
+            "gold",
+            "gold_ans",
+            "answer_from_dataset",
+            "label",
+        ]:
+            if key in row and row[key] is not None:
+                return self.normalize_answer(row[key])
+        return ""
+
+    @staticmethod
+    def normalize_answer(value):
+        if value is None:
+            return ""
+        if isinstance(value, (bool, int, float)):
+            return value
+        text = str(value).strip()
+        if not text:
+            return ""
+        if "####" in text:
+            text = text.split("####", 1)[1].strip()
+        # Collapse "Answer: xxx" patterns to "xxx".
+        m = re.search(r"(?i)\banswer\s*[:\-]\s*(.+)$", text.splitlines()[-1].strip())
+        if m is not None:
+            text = m.group(1).strip()
+        # Collapse "B) ..." to "B" for MC answers.
+        m = re.match(r"^\s*([A-Z])(?:\)|\.|:|-|\s|$)", text)
+        if m is not None and len(m.group(1)) == 1:
+            return m.group(1)
+        return text
+
     def create_monotonous_cot_dataset(self, dataset, eos, epochs, chat_format):
         cot_dataset = []
         for e in range(epochs):
@@ -196,18 +345,19 @@ class DataProcessor:
                 # pick 1 random cot and using that cot for all the questions
                 # in this way we keep the same amount of data
                 # and we can train the model on only 1 cot / question
-                if len(x["correct_cots"]) >= 1:
-                    cot = random.choice(x["correct_cots"])
-                    for _ in x["correct_cots"]:
-                        question = x["question"]
+                list_cots = self.extract_cots(x)
+                if len(list_cots) >= 1:
+                    cot = random.choice(list_cots)
+                    for _ in list_cots:
+                        question = x.get("question", "")
                         context = None if "context" not in x else x["context"]
                         options = None if "options" not in x else x["options"]
-                        answer = x["answer"]
+                        answer = self.extract_answer(x)
                         data_point = self.create_ccot_data_point(
                             question,
                             context,
                             options,
-                            [cot["cot"]],
+                            [cot],
                             answer,
                             eos,
                             chat_format,

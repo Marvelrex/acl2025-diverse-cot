@@ -103,7 +103,7 @@ Running this script will train your LLM with LoRA on our DCoT intruction-tuning 
 $ python training_script.py \
     --train \
     --base_model_path YOUR_MODEL_PATH/models--llama-2-hf/7B \
-    --lora_path YOUR_LORA_OUTPUT_PATH/ \
+    --output_path YOUR_OUTPUT_PATH/ \
     --train_path data/dcot_collection/cot9_dataset.json \
     --epochs 3\
     --training_batch_size 4 \
@@ -112,6 +112,88 @@ $ python training_script.py \
 ```
 
 To train the CoT baseline, you just need to change `--dcot` by `--cot`.
+
+The script now supports both LoRA and Full SFT from the same entrypoint:
+
+- LoRA (default): `--sft_type lora`
+- Full SFT: `--sft_type full --no-load_in_8bit`
+
+It also supports BRIDGE-style JSON/JSONL training data directly (e.g., rows with
+`question`, `response_rationale`, `response_ans`) without changing the method mode.
+
+You can also pass a JSON config file with BRIDGE-style keys
+(`model_name`, `tokenizer_name`, `max_length`, `num_epochs`, `batch_size`,
+`grad_accum`, `use_lora`, etc.) via `--config_file`.
+
+Examples:
+
+```bash
+# LoRA with custom hyperparameters
+python training_script.py \
+  --train \
+  --base_model_path YOUR_MODEL \
+  --output_path YOUR_OUTPUT \
+  --train_path Baseline/data/GSM8K/results_cot.jsonl \
+  --cot \
+  --sft_type lora \
+  --lora_r 64 \
+  --lora_alpha 16 \
+  --lora_dropout 0.1 \
+  --learning_rate 2e-4 \
+  --epochs 3
+
+# Full SFT with custom hyperparameters
+python training_script.py \
+  --train \
+  --base_model_path YOUR_MODEL \
+  --output_path YOUR_OUTPUT \
+  --train_path Baseline/data/GSM8K/results_cot.jsonl \
+  --cot \
+  --sft_type full \
+  --no-load_in_8bit \
+  --learning_rate 1e-5 \
+  --training_batch_size 2 \
+  --gradient_accumulation_steps 8 \
+  --epochs 3
+
+# LoRA from config (Qwen3-1.7B example)
+python training_script.py \
+  --train \
+  --config_file configs/lora_qwen3_1p7b.json \
+  --train_path Baseline/data/GSM8K/results_cot.jsonl \
+  --cot \
+  --output_path YOUR_OUTPUT
+
+# Full SFT from config (Qwen3-1.7B example)
+python training_script.py \
+  --train \
+  --config_file configs/fullsft_qwen3_1p7b.json \
+  --train_path Baseline/data/GSM8K/results_cot.jsonl \
+  --cot \
+  --output_path YOUR_OUTPUT \
+  --no-load_in_8bit
+```
+
+### Compatibility with `SFT/distill_rationale*.py`
+
+If you move these methods into `BRIDGE` and want to train with:
+- `SFT/distill_rationale.py` (LoRA), or
+- `SFT/distill_rationale_full_sft.py` (Full SFT),
+
+use the converter:
+
+```bash
+python src/bridge_distill_compat.py \
+    --input YOUR_INPUT.jsonl \
+    --output YOUR_OUTPUT_FOR_SFT.jsonl \
+    --input-format auto
+```
+
+For raw DCoT files with `correct_cots`, use `--input-format dcot_raw` and select:
+- `--method dcot` (multi-CoT rationale per question), or
+- `--method cot --expand-cots` (one CoT per row).
+
+See `SFT_COMPAT.md` for full examples.
 
 
 ### Model Checkpoints
