@@ -12,8 +12,8 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 export DATASET_NAME="GSM8K"
 export SFT_TYPE="full"
 
-bash "$SCRIPT_DIR/scripts/run_dcot_sft.sh" "$@"
+bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" "$@"

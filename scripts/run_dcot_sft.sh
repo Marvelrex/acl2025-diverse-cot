@@ -17,7 +17,7 @@ module load gcc arrow/21.0.0
 VENV_ACTIVATE="${VENV_ACTIVATE:-/home/jyang001/jyang001/projects/envs/quin/bin/activate}"
 source "$VENV_ACTIVATE"
 
-PROJECT_ROOT="${PROJECT_ROOT:-/home/jyang001/jyang001/projects/BRIDGE}"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 cd "$PROJECT_ROOT"
 mkdir -p logs
 
