@@ -1,4 +1,5 @@
 import argparse
+import inspect
 import json
 import os
 
@@ -80,30 +81,7 @@ def train(train_hf, tokenizer, args):
             task_type="CAUSAL_LM",
         )
 
-    training_arguments = TrainingArguments(
-        output_dir=output_path,
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.training_batch_size,
-        per_device_eval_batch_size=args.per_device_eval_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        optim=args.optim,
-        learning_rate=args.learning_rate,
-        weight_decay=args.weight_decay,
-        fp16=args.fp16,
-        bf16=args.bf16,
-        max_grad_norm=args.max_grad_norm,
-        max_steps=args.max_steps,
-        warmup_ratio=args.warmup_ratio,
-        group_by_length=args.group_by_length,
-        lr_scheduler_type=args.lr_scheduler_type,
-        report_to="none",
-        evaluation_strategy="no",
-        save_strategy="steps",
-        save_steps=save_steps,
-        logging_strategy=args.logging_strategy,
-        logging_steps=args.logging_steps,
-        gradient_checkpointing=args.gradient_checkpointing,
-    )
+    training_arguments = build_training_arguments(args, output_path, save_steps)
     print(f"Saving every {save_steps} steps")
     print(f"SFT type: {args.sft_type}")
 
@@ -119,7 +97,7 @@ def train(train_hf, tokenizer, args):
     if peft_config is not None:
         trainer_kwargs["peft_config"] = peft_config
 
-    trainer = SFTTrainer(**trainer_kwargs)
+    trainer = build_sft_trainer_compat(trainer_kwargs)
     print("Training started...")
     trainer.train()
     trainer.model.save_pretrained(output_path)
@@ -135,6 +113,85 @@ def train(train_hf, tokenizer, args):
             tokenizer.save_pretrained(merged_dir)
             print(f"Merged model written to: {merged_dir}")
     return trainer.model
+
+
+def _translate_arg_name(arg_name, supported_params):
+    # Backward/forward compatibility across transformers versions.
+    aliases = {
+        "evaluation_strategy": ("eval_strategy",),
+        "eval_strategy": ("evaluation_strategy",),
+    }
+    if arg_name in aliases:
+        for candidate in aliases[arg_name]:
+            if candidate in supported_params:
+                return candidate
+    return arg_name
+
+
+def build_training_arguments(args, output_path, save_steps):
+    kwargs = {
+        "output_dir": output_path,
+        "num_train_epochs": args.epochs,
+        "per_device_train_batch_size": args.training_batch_size,
+        "per_device_eval_batch_size": args.per_device_eval_batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "optim": args.optim,
+        "learning_rate": args.learning_rate,
+        "weight_decay": args.weight_decay,
+        "fp16": args.fp16,
+        "bf16": args.bf16,
+        "max_grad_norm": args.max_grad_norm,
+        "max_steps": args.max_steps,
+        "warmup_ratio": args.warmup_ratio,
+        "group_by_length": args.group_by_length,
+        "lr_scheduler_type": args.lr_scheduler_type,
+        "report_to": "none",
+        "evaluation_strategy": "no",
+        "save_strategy": "steps",
+        "save_steps": save_steps,
+        "logging_strategy": args.logging_strategy,
+        "logging_steps": args.logging_steps,
+        "gradient_checkpointing": args.gradient_checkpointing,
+    }
+
+    supported = inspect.signature(TrainingArguments.__init__).parameters
+    filtered_kwargs = {}
+    dropped = []
+
+    for key, value in kwargs.items():
+        mapped_key = _translate_arg_name(key, supported)
+        if mapped_key in supported:
+            filtered_kwargs[mapped_key] = value
+        else:
+            dropped.append(key)
+
+    if dropped:
+        print(
+            "Warning: dropping unsupported TrainingArguments keys for this transformers version: "
+            + ", ".join(dropped)
+        )
+
+    return TrainingArguments(**filtered_kwargs)
+
+
+def build_sft_trainer_compat(trainer_kwargs):
+    supported = inspect.signature(SFTTrainer.__init__).parameters
+    filtered_kwargs = {}
+    dropped = []
+
+    for key, value in trainer_kwargs.items():
+        if key in supported:
+            filtered_kwargs[key] = value
+        else:
+            dropped.append(key)
+
+    if dropped:
+        print(
+            "Warning: dropping unsupported SFTTrainer keys for this trl version: "
+            + ", ".join(dropped)
+        )
+
+    return SFTTrainer(**filtered_kwargs)
 
 
 def get_training_set(args, eos_token):
