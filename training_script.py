@@ -41,6 +41,36 @@ def resolve_save_steps(train_hf, args):
     return max(1, estimated)
 
 
+def normalize_train_dataset_for_sft(train_hf):
+    column_names = list(getattr(train_hf, "column_names", []))
+    if not column_names:
+        return train_hf
+
+    dataset = train_hf
+
+    # Some newer TRL versions infer prompt-completion mode when "prompt" exists.
+    # Our pipeline trains on full concatenated text; keep only "text" to force that path.
+    if "text" in column_names:
+        drop_cols = [c for c in column_names if c != "text"]
+        if drop_cols:
+            print(
+                "Info: normalizing dataset columns for TRL compatibility; "
+                f"keeping only 'text' (dropping: {', '.join(drop_cols)})."
+            )
+            dataset = dataset.remove_columns(drop_cols)
+        return dataset
+
+    # Fallback compatibility: if prompt/response exist but completion is missing,
+    # create completion alias expected by some TRL releases.
+    column_names = list(getattr(dataset, "column_names", []))
+    if "prompt" in column_names and "completion" not in column_names and "response" in column_names:
+        dataset = dataset.map(
+            lambda examples: {"completion": examples["response"]},
+            batched=True,
+        )
+    return dataset
+
+
 def load_train_model(args):
     load_in_8bit = args.load_in_8bit
     if load_in_8bit is None:
@@ -65,6 +95,7 @@ def load_train_model(args):
 
 
 def train(train_hf, tokenizer, args):
+    train_hf = normalize_train_dataset_for_sft(train_hf)
     output_path = resolve_output_path(args)
     save_steps = resolve_save_steps(train_hf, args)
 
