@@ -96,7 +96,7 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_ROOT="$2"; shift 2 ;;
     --help|-h)
       echo "Usage: sbatch <DATASET>_DCoT_<LoRA|Full_SFT>.slurm [--student-model qwen|llama] [--model-name HF_ID] [--tokenizer-name HF_ID] [--data-file PATH] [--output-root PATH] [extra training_script args...]"
-      echo "Default data-file selection now prioritizes Baseline/data/<DATASET>/results_dcot_teacher.jsonl"
+      echo "Default data-file selection now prioritizes Baseline/data/<DATASET>/<DATASET>_Teacher.jsonl"
       exit 0 ;;
     *)
       EXTRA_ARGS+=("$1"); shift 1 ;;
@@ -138,6 +138,7 @@ if [[ -z "$DATA_FILE" ]]; then
   case "$DATASET_NAME" in
     AQUA)
       CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/AQUA/AQUA_Teacher.jsonl"
         "$PROJECT_ROOT/Baseline/data/AQUA/results_dcot_teacher.jsonl"
         "$PROJECT_ROOT/Baseline/data/AQUA/train.jsonl"
         "$PROJECT_ROOT/Baseline/data/AQUA/results_dcot.jsonl"
@@ -149,6 +150,7 @@ if [[ -z "$DATA_FILE" ]]; then
       ;;
     GSM8K)
       CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/GSM8K/GSM8K_Teacher.jsonl"
         "$PROJECT_ROOT/Baseline/data/GSM8K/results_dcot_teacher.jsonl"
         "$PROJECT_ROOT/Baseline/data/GSM8K/train.jsonl"
         "$PROJECT_ROOT/Baseline/data/GSM8K/results_dcot.jsonl"
@@ -160,6 +162,7 @@ if [[ -z "$DATA_FILE" ]]; then
       ;;
     StrategyQA)
       CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/StrategyQA/StrategyQA_Teacher.jsonl"
         "$PROJECT_ROOT/Baseline/data/StrategyQA/results_dcot_teacher.jsonl"
         "$PROJECT_ROOT/Baseline/data/StrategyQA/train.jsonl"
         "$PROJECT_ROOT/Baseline/data/StrategyQA/train.json"
