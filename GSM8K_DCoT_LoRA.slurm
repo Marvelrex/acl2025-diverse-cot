@@ -16,4 +16,5 @@ PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 export DATASET_NAME="GSM8K"
 export SFT_TYPE="lora"
 
-bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" "$@"
+DEFAULT_DATA_FILE="$PROJECT_ROOT/Baseline/data/GSM8K/results_dcot_teacher.jsonl"
+bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" --data-file "$DEFAULT_DATA_FILE" "$@"

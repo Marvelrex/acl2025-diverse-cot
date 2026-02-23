@@ -29,6 +29,59 @@ OUTPUT_ROOT=""
 TRAIN_SCRIPT="${TRAIN_SCRIPT:-}"
 EXTRA_ARGS=()
 
+is_dcot_compatible_file() {
+  local f="$1"
+  python - "$f" <<'PY'
+import json, sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if not path.exists():
+    print("NO")
+    raise SystemExit(1)
+
+text = path.read_text(encoding="utf-8", errors="ignore").strip()
+if not text:
+    print("NO")
+    raise SystemExit(1)
+
+row = None
+try:
+    parsed = json.loads(text)
+    if isinstance(parsed, list) and parsed:
+        row = parsed[0] if isinstance(parsed[0], dict) else None
+    elif isinstance(parsed, dict):
+        row = parsed
+except Exception:
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            row = obj
+            break
+
+if not isinstance(row, dict):
+    print("NO")
+    raise SystemExit(1)
+
+ok = False
+if isinstance(row.get("correct_cots"), list) and len(row["correct_cots"]) > 0:
+    ok = True
+if row.get("response_rationale") is not None or row.get("rationale") is not None:
+    ok = True
+if isinstance(row.get("response_payload"), dict) and row["response_payload"].get("rationale") is not None:
+    ok = True
+
+print("YES" if ok else "NO")
+raise SystemExit(0 if ok else 1)
+PY
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --data-file)
@@ -43,6 +96,7 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_ROOT="$2"; shift 2 ;;
     --help|-h)
       echo "Usage: sbatch <DATASET>_DCoT_<LoRA|Full_SFT>.slurm [--student-model qwen|llama] [--model-name HF_ID] [--tokenizer-name HF_ID] [--data-file PATH] [--output-root PATH] [extra training_script args...]"
+      echo "Default data-file selection now prioritizes Baseline/data/<DATASET>/results_dcot_teacher.jsonl"
       exit 0 ;;
     *)
       EXTRA_ARGS+=("$1"); shift 1 ;;
@@ -84,6 +138,9 @@ if [[ -z "$DATA_FILE" ]]; then
   case "$DATASET_NAME" in
     AQUA)
       CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/AQUA/results_dcot_teacher.jsonl"
+        "$PROJECT_ROOT/Baseline/data/AQUA/train.jsonl"
+        "$PROJECT_ROOT/Baseline/data/AQUA/results_dcot.jsonl"
         "$PROJECT_ROOT/data/AQUA/cot_dataset.json"
         "$PROJECT_ROOT/data/aqua/cot_dataset.json"
         "$PROJECT_ROOT/data/AQUA/DCoT/results_dcot.jsonl"
@@ -92,6 +149,9 @@ if [[ -z "$DATA_FILE" ]]; then
       ;;
     GSM8K)
       CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/GSM8K/results_dcot_teacher.jsonl"
+        "$PROJECT_ROOT/Baseline/data/GSM8K/train.jsonl"
+        "$PROJECT_ROOT/Baseline/data/GSM8K/results_dcot.jsonl"
         "$PROJECT_ROOT/data/GSM8K/cot_dataset.json"
         "$PROJECT_ROOT/data/gsm8k/cot_dataset.json"
         "$PROJECT_ROOT/data/GSM8K/DCoT/results_dcot.jsonl"
@@ -100,6 +160,10 @@ if [[ -z "$DATA_FILE" ]]; then
       ;;
     StrategyQA)
       CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/StrategyQA/results_dcot_teacher.jsonl"
+        "$PROJECT_ROOT/Baseline/data/StrategyQA/train.jsonl"
+        "$PROJECT_ROOT/Baseline/data/StrategyQA/train.json"
+        "$PROJECT_ROOT/Baseline/data/StrategyQA/results_dcot.jsonl"
         "$PROJECT_ROOT/data/StrategyQA/cot_dataset.json"
         "$PROJECT_ROOT/data/strategyqa/cot_dataset.json"
         "$PROJECT_ROOT/data/StrategyQA/DCoT/results_dcot.jsonl"
@@ -113,7 +177,7 @@ if [[ -z "$DATA_FILE" ]]; then
   esac
 
   for candidate in "${CANDIDATES[@]}"; do
-    if [[ -f "$candidate" ]]; then
+    if [[ -f "$candidate" ]] && is_dcot_compatible_file "$candidate" >/dev/null 2>&1; then
       DATA_FILE="$candidate"
       break
     fi
@@ -121,7 +185,7 @@ if [[ -z "$DATA_FILE" ]]; then
 fi
 
 if [[ -z "$DATA_FILE" ]]; then
-  echo "Could not auto-locate data file for ${DATASET_NAME}. Please pass --data-file." >&2
+  echo "Could not auto-locate a DCoT-compatible data file for ${DATASET_NAME}. Please pass --data-file." >&2
   exit 4
 fi
 

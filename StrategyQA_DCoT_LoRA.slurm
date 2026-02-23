@@ -16,4 +16,5 @@ PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 export DATASET_NAME="StrategyQA"
 export SFT_TYPE="lora"
 
-bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" "$@"
+DEFAULT_DATA_FILE="$PROJECT_ROOT/Baseline/data/StrategyQA/results_dcot_teacher.jsonl"
+bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" --data-file "$DEFAULT_DATA_FILE" "$@"
