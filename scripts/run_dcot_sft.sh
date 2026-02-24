@@ -26,7 +26,17 @@ STUDENT_MODEL="qwen"
 MODEL_NAME=""
 TOKENIZER_NAME=""
 OUTPUT_ROOT=""
+PRED_ROOT=""
+TEST_FILE=""
 TRAIN_SCRIPT="${TRAIN_SCRIPT:-}"
+PREDICT_SCRIPT="${PREDICT_SCRIPT:-}"
+PREDICT=true
+PRED_OVERWRITE=false
+PRED_NUM_COTS=3
+PRED_MAX_NEW_TOKENS=2048
+PRED_DO_SAMPLE=false
+PRED_TEMPERATURE=0.0
+PRED_MAX_SAMPLES=""
 EXTRA_ARGS=()
 
 is_dcot_compatible_file() {
@@ -94,8 +104,30 @@ while [[ $# -gt 0 ]]; do
       TOKENIZER_NAME="$2"; shift 2 ;;
     --output-root)
       OUTPUT_ROOT="$2"; shift 2 ;;
+    --pred-root)
+      PRED_ROOT="$2"; shift 2 ;;
+    --test-file)
+      TEST_FILE="$2"; shift 2 ;;
+    --predict)
+      PREDICT=true; shift 1 ;;
+    --no-predict)
+      PREDICT=false; shift 1 ;;
+    --pred-overwrite)
+      PRED_OVERWRITE=true; shift 1 ;;
+    --pred-num-cots)
+      PRED_NUM_COTS="$2"; shift 2 ;;
+    --pred-max-new-tokens)
+      PRED_MAX_NEW_TOKENS="$2"; shift 2 ;;
+    --pred-do-sample)
+      PRED_DO_SAMPLE=true; shift 1 ;;
+    --no-pred-do-sample)
+      PRED_DO_SAMPLE=false; shift 1 ;;
+    --pred-temperature)
+      PRED_TEMPERATURE="$2"; shift 2 ;;
+    --pred-max-samples)
+      PRED_MAX_SAMPLES="$2"; shift 2 ;;
     --help|-h)
-      echo "Usage: sbatch <DATASET>_DCoT_<LoRA|Full_SFT>.slurm [--student-model qwen|llama] [--model-name HF_ID] [--tokenizer-name HF_ID] [--data-file PATH] [--output-root PATH] [extra training_script args...]"
+      echo "Usage: sbatch <DATASET>_DCoT_<LoRA|Full_SFT>.slurm [--student-model qwen|llama] [--model-name HF_ID] [--tokenizer-name HF_ID] [--data-file PATH] [--output-root PATH] [--predict|--no-predict] [--test-file PATH] [--pred-root PATH] [extra training_script args...]"
       echo "Default data-file selection now prioritizes Baseline/data/<DATASET>/<DATASET>_Teacher.jsonl"
       exit 0 ;;
     *)
@@ -252,3 +284,97 @@ python "$TRAIN_SCRIPT" \
   "${COMMON_ARGS[@]}" \
   "${SFT_ARGS[@]}" \
   "${EXTRA_ARGS[@]}"
+
+if [[ "$PREDICT" == true ]]; then
+  if [[ -z "$PREDICT_SCRIPT" ]]; then
+    PREDICT_SCRIPT="$PROJECT_ROOT/scripts/predict_dcot_test.py"
+  fi
+  if [[ ! -f "$PREDICT_SCRIPT" ]]; then
+    echo "Prediction script not found: $PREDICT_SCRIPT" >&2
+    exit 5
+  fi
+
+  if [[ -z "$TEST_FILE" ]]; then
+    case "$DATASET_NAME" in
+      AQUA)
+        CANDIDATE_TEST_FILES=(
+          "$PROJECT_ROOT/Baseline/data/AQUA/test.jsonl"
+          "$PROJECT_ROOT/data/aqua/test.json"
+          "$PROJECT_ROOT/data/AQUA/test.json"
+        )
+        ;;
+      GSM8K)
+        CANDIDATE_TEST_FILES=(
+          "$PROJECT_ROOT/Baseline/data/GSM8K/test.jsonl"
+          "$PROJECT_ROOT/data/gsm8k/test.json"
+          "$PROJECT_ROOT/data/GSM8K/test.json"
+        )
+        ;;
+      StrategyQA)
+        CANDIDATE_TEST_FILES=(
+          "$PROJECT_ROOT/Baseline/data/StrategyQA/test.jsonl"
+          "$PROJECT_ROOT/data/strategyqa/test.json"
+          "$PROJECT_ROOT/data/StrategyQA/test.json"
+        )
+        ;;
+      *)
+        echo "Unsupported dataset for prediction: $DATASET_NAME" >&2
+        exit 6
+        ;;
+    esac
+    for tf in "${CANDIDATE_TEST_FILES[@]}"; do
+      if [[ -f "$tf" ]]; then
+        TEST_FILE="$tf"
+        break
+      fi
+    done
+  fi
+
+  if [[ -z "$TEST_FILE" ]]; then
+    echo "Could not locate a test file for prediction. Pass --test-file." >&2
+    exit 6
+  fi
+
+  if [[ -z "$PRED_ROOT" ]]; then
+    PRED_ROOT="${OUTPUT_PATH%/}/predictions"
+  fi
+  mkdir -p "$PRED_ROOT"
+  PRED_FILE="$PRED_ROOT/${DATASET_NAME}_test_predictions.jsonl"
+
+  PRED_ARGS=(
+    --dataset "$DATASET_NAME"
+    --test-file "$TEST_FILE"
+    --output-file "$PRED_FILE"
+    --num-cots "$PRED_NUM_COTS"
+    --max-new-tokens "$PRED_MAX_NEW_TOKENS"
+    --tokenizer-name "$TOKENIZER_NAME"
+  )
+  if [[ "$PRED_DO_SAMPLE" == true ]]; then
+    PRED_ARGS+=(--do-sample --temperature "$PRED_TEMPERATURE")
+  fi
+  if [[ "$PRED_OVERWRITE" == true ]]; then
+    PRED_ARGS+=(--overwrite)
+  fi
+  if [[ -n "$PRED_MAX_SAMPLES" ]]; then
+    PRED_ARGS+=(--max-samples "$PRED_MAX_SAMPLES")
+  fi
+
+  if [[ "$SFT_TYPE" == "lora" ]]; then
+    PRED_ARGS+=(
+      --sft-type lora
+      --base-model-path "$MODEL_NAME"
+      --adapter-path "$OUTPUT_PATH"
+    )
+  else
+    PRED_ARGS+=(
+      --sft-type full
+      --model-path "$OUTPUT_PATH"
+    )
+  fi
+
+  echo "[RUN] prediction=true"
+  echo "[RUN] test_file=${TEST_FILE}"
+  echo "[RUN] pred_file=${PRED_FILE}"
+
+  python "$PREDICT_SCRIPT" "${PRED_ARGS[@]}"
+fi

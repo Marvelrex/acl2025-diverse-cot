@@ -16,5 +16,4 @@ PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-$(pwd)}}"
 export DATASET_NAME="AQUA"
 export SFT_TYPE="lora"
 
-DEFAULT_DATA_FILE="$PROJECT_ROOT/Baseline/data/AQUA/AQUA_Teacher.jsonl"
-bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" --data-file "$DEFAULT_DATA_FILE" "$@"
+bash "$PROJECT_ROOT/scripts/run_dcot_sft.sh" "$@"
