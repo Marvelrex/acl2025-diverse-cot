@@ -41,6 +41,51 @@ def resolve_save_steps(train_hf, args):
     return max(1, estimated)
 
 
+def find_latest_checkpoint(output_path):
+    if not os.path.isdir(output_path):
+        return None
+
+    candidates = []
+    for entry in os.listdir(output_path):
+        if not entry.startswith("checkpoint-"):
+            continue
+        step_str = entry[len("checkpoint-") :]
+        if not step_str.isdigit():
+            continue
+        ckpt_path = os.path.join(output_path, entry)
+        if os.path.isdir(ckpt_path):
+            candidates.append((int(step_str), ckpt_path))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[-1][1]
+
+
+def resolve_resume_checkpoint(args, output_path):
+    if args.resume_from_checkpoint:
+        value = str(args.resume_from_checkpoint).strip()
+        if value.lower() in {"auto", "latest"}:
+            latest = find_latest_checkpoint(output_path)
+            if latest:
+                print(f"Resuming from latest checkpoint: {latest}")
+            else:
+                print("Requested checkpoint auto-resume, but no checkpoint was found. Starting fresh.")
+            return latest
+        if not os.path.isdir(value):
+            raise ValueError(f"--resume_from_checkpoint path does not exist or is not a directory: {value}")
+        print(f"Resuming from explicit checkpoint: {value}")
+        return value
+
+    if not args.auto_resume:
+        return None
+
+    latest = find_latest_checkpoint(output_path)
+    if latest:
+        print(f"Auto-resume enabled. Found checkpoint: {latest}")
+    return latest
+
+
 def normalize_train_dataset_for_sft(train_hf):
     column_names = list(getattr(train_hf, "column_names", []))
     if not column_names:
@@ -129,8 +174,12 @@ def train(train_hf, tokenizer, args):
         trainer_kwargs["peft_config"] = peft_config
 
     trainer = build_sft_trainer_compat(trainer_kwargs)
+    resume_ckpt = resolve_resume_checkpoint(args, output_path)
     print("Training started...")
-    trainer.train()
+    if resume_ckpt is not None:
+        trainer.train(resume_from_checkpoint=resume_ckpt)
+    else:
+        trainer.train()
     trainer.model.save_pretrained(output_path)
     tokenizer.save_pretrained(output_path)
 
@@ -425,6 +474,20 @@ def parse_args():
     parser.add_argument("--save_steps", type=int, default=None)
     parser.add_argument("--logging_strategy", choices=["no", "steps", "epoch"], default="no")
     parser.add_argument("--logging_steps", type=int, default=10)
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        "--resume-from-checkpoint",
+        dest="resume_from_checkpoint",
+        type=str,
+        default=None,
+        help="Checkpoint directory path to resume from, or 'auto'/'latest' to use newest checkpoint in output.",
+    )
+    parser.add_argument(
+        "--auto_resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If true, resume automatically from the latest checkpoint in output dir when available.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--k", type=int, help="Number of chains to generate for eval")
 
