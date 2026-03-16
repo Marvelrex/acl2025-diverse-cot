@@ -630,26 +630,44 @@ def call_openai_chat(
         client_kwargs["base_url"] = base_url
     client = OpenAI(**client_kwargs)
 
+    def build_completion_kwargs(use_max_completion_tokens: bool) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Return only valid JSON. No markdown fences.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": temperature,
+        }
+        token_key = "max_completion_tokens" if use_max_completion_tokens else "max_tokens"
+        kwargs[token_key] = max_tokens
+        return kwargs
+
+    # GPT-5.x chat completions require max_completion_tokens instead of max_tokens.
+    use_max_completion_tokens = str(model).lower().startswith("gpt-5")
     last_err: Optional[Exception] = None
     for attempt in range(1, retries + 1):
         try:
             resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Return only valid JSON. No markdown fences.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
+                **build_completion_kwargs(use_max_completion_tokens)
             )
             if not getattr(resp, "choices", None):
                 return ""
             content = resp.choices[0].message.content
             return extract_message_content(content).strip()
         except Exception as exc:  # pragma: no cover
+            msg = str(exc)
+            if "max_tokens" in msg and "max_completion_tokens" in msg:
+                use_max_completion_tokens = True
+                last_err = exc
+                continue
+            if "max_completion_tokens" in msg and "max_tokens" in msg:
+                use_max_completion_tokens = False
+                last_err = exc
+                continue
             last_err = exc
             if attempt < retries:
                 time.sleep(retry_wait * attempt)

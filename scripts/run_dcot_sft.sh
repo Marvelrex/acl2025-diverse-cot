@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ -z "${DATASET_NAME:-}" ]]; then
-  echo "DATASET_NAME is required (AQUA|GSM8K|StrategyQA)." >&2
+  echo "DATASET_NAME is required (AQUA|GSM8K|StrategyQA|AI2ARC|GPQA)." >&2
   exit 2
 fi
 if [[ -z "${SFT_TYPE:-}" ]]; then
@@ -205,6 +205,22 @@ if [[ -z "$DATA_FILE" ]]; then
         "$PROJECT_ROOT/data/StrategyQA/results_dcot.jsonl"
       )
       ;;
+    AI2ARC)
+      CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/AI2ARC/results_dcot_teacher_gpt52.jsonl"
+        "$PROJECT_ROOT/Baseline/data/AI2ARC/results_dcot_teacher.jsonl"
+        "$PROJECT_ROOT/Baseline/data/AI2ARC/gsm8k_format_all.jsonl"
+        "$PROJECT_ROOT/Baseline/data/AI2ARC/gsm8k_format_train.jsonl"
+      )
+      ;;
+    GPQA)
+      CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/GPQA/results_dcot_teacher_gpt52.jsonl"
+        "$PROJECT_ROOT/Baseline/data/GPQA/results_dcot_teacher.jsonl"
+        "$PROJECT_ROOT/Baseline/data/GPQA/gsm8k_format.jsonl"
+        "$PROJECT_ROOT/Baseline/data/GPQA/gsm8k_format_train.jsonl"
+      )
+      ;;
     *)
       echo "Unsupported dataset: $DATASET_NAME" >&2
       exit 2
@@ -315,6 +331,16 @@ if [[ "$PREDICT" == true ]]; then
           "$PROJECT_ROOT/Baseline/data/StrategyQA/test.jsonl"
           "$PROJECT_ROOT/data/strategyqa/test.json"
           "$PROJECT_ROOT/data/StrategyQA/test.json"
+        )
+        ;;
+      AI2ARC)
+        CANDIDATE_TEST_FILES=(
+          "$PROJECT_ROOT/Baseline/data/AI2ARC/gsm8k_format_test.jsonl"
+        )
+        ;;
+      GPQA)
+        CANDIDATE_TEST_FILES=(
+          "$PROJECT_ROOT/Baseline/data/GPQA/gsm8k_format_test.jsonl"
         )
         ;;
       *)

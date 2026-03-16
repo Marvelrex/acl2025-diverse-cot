@@ -20,6 +20,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
+MULTIPLE_CHOICE_DATASETS = {"AQUA", "AI2ARC", "GPQA"}
+
+
 def read_records(path: Path) -> List[dict]:
     text = path.read_text(encoding="utf-8")
     try:
@@ -227,8 +230,8 @@ def parse_final_answer(raw_text: str, dataset: str) -> Any:
             break
 
     d = dataset.upper()
-    if d == "AQUA":
-        m = re.search(r"\b([A-E])\b", candidate.upper())
+    if d in MULTIPLE_CHOICE_DATASETS:
+        m = re.search(r"\b([A-Z])\b", candidate.upper())
         if m:
             return m.group(1)
     elif d == "STRATEGYQA":
@@ -241,7 +244,7 @@ def parse_final_answer(raw_text: str, dataset: str) -> Any:
             return True
         if "no" in low:
             return False
-    else:  # GSM8K
+    else:  # numeric-answer datasets such as GSM8K
         m = re.search(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?", candidate)
         if m:
             return normalize_answer(m.group(0))
@@ -273,7 +276,7 @@ def resolve_dtype_name(dtype_name: str):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--dataset", choices=["AQUA", "GSM8K", "StrategyQA"], required=True)
+    p.add_argument("--dataset", choices=["AQUA", "GSM8K", "StrategyQA", "AI2ARC", "GPQA"], required=True)
     p.add_argument("--test-file", type=Path, required=True)
     p.add_argument("--output-file", type=Path, required=True)
 
