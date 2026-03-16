@@ -152,8 +152,13 @@ def normalize_for_compare(value: Any) -> str:
 def extract_numeric_candidates(value: Any) -> List[float]:
     if isinstance(value, bool) or value is None:
         return []
-    if isinstance(value, (int, float)):
-        return [float(value)]
+    if isinstance(value, int):
+        try:
+            return [float(value)]
+        except OverflowError:
+            return []
+    if isinstance(value, float):
+        return [value]
     text = str(value).strip()
     if not text:
         return []
@@ -163,14 +168,23 @@ def extract_numeric_candidates(value: Any) -> List[float]:
     for token in matches:
         try:
             out.append(float(token))
-        except ValueError:
+        except (ValueError, OverflowError):
             continue
     return out
 
 
-def compare_answers(pred: Any, gold: Any) -> bool:
+def compare_answers(pred: Any, gold: Any, dataset: Optional[str] = None) -> bool:
     p = normalize_answer(pred)
     g = normalize_answer(gold)
+    p_norm = normalize_for_compare(p)
+    g_norm = normalize_for_compare(g)
+
+    if p_norm == g_norm:
+        return True
+
+    dataset_key = str(dataset or "").upper()
+    if dataset_key in MULTIPLE_CHOICE_DATASETS or dataset_key == "STRATEGYQA":
+        return False
 
     if isinstance(p, (int, float)) and isinstance(g, (int, float)):
         return abs(float(p) - float(g)) < 1e-9
@@ -185,7 +199,7 @@ def compare_answers(pred: Any, gold: Any) -> bool:
             if round(x, 12) in g_set:
                 return True
 
-    return normalize_for_compare(p) == normalize_for_compare(g)
+    return p_norm == g_norm
 
 
 def get_gold(row: dict) -> Any:
@@ -231,6 +245,17 @@ def parse_final_answer(raw_text: str, dataset: str) -> Any:
 
     d = dataset.upper()
     if d in MULTIPLE_CHOICE_DATASETS:
+        patterns = (
+            r"(?i)\bfinal\s*answer\s*[:\-]?\s*\(?([A-Z])\)?\b",
+            r"(?i)\bcorrect\s*answer\s*[:\-]?\s*\(?([A-Z])\)?\b",
+            r"(?i)\banswer\s*[:\-]?\s*\(?([A-Z])\)?\b",
+            r"(?i)\boption\s*[:\-]?\s*\(?([A-Z])\)?\b",
+        )
+        for text in (candidate, raw_text):
+            for pattern in patterns:
+                m = re.search(pattern, text)
+                if m:
+                    return m.group(1).upper()
         m = re.search(r"\b([A-Z])\b", candidate.upper())
         if m:
             return m.group(1)
@@ -357,14 +382,14 @@ def main():
         tokenizer_name = tokenizer_name or args.base_model_path
         base_kwargs = {"device_map": "auto", "trust_remote_code": True}
         if dtype is not None:
-            base_kwargs["torch_dtype"] = dtype
+            base_kwargs["dtype"] = dtype
         base_model = AutoModelForCausalLM.from_pretrained(args.base_model_path, **base_kwargs)
         model = PeftModel.from_pretrained(base_model, args.adapter_path)
     else:
         tokenizer_name = tokenizer_name or args.model_path
         model_kwargs = {"device_map": "auto", "trust_remote_code": True}
         if dtype is not None:
-            model_kwargs["torch_dtype"] = dtype
+            model_kwargs["dtype"] = dtype
         model = AutoModelForCausalLM.from_pretrained(args.model_path, **model_kwargs)
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, trust_remote_code=True)
@@ -398,6 +423,12 @@ def main():
             }
             if args.do_sample:
                 gen_kwargs["temperature"] = args.temperature
+            else:
+                # Override sampling-oriented model defaults during greedy decoding
+                # to avoid generation-config warnings from some instruct models.
+                gen_kwargs["temperature"] = 1.0
+                gen_kwargs["top_p"] = 1.0
+                gen_kwargs["top_k"] = 50
 
             with torch.no_grad():
                 outputs = model.generate(**inputs, **gen_kwargs)
@@ -408,7 +439,7 @@ def main():
             pred = parse_final_answer(raw_output, args.dataset)
             gold = get_gold(row)
             rationale = parse_rationale(raw_output)
-            correct = compare_answers(pred, gold)
+            correct = compare_answers(pred, gold, dataset=args.dataset)
 
             item = {
                 "id": sid,
