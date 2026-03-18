@@ -36,7 +36,7 @@ PRED_MAX_NEW_TOKENS=2048
 PRED_TORCH_DTYPE="bfloat16"
 
 usage() {
-  echo "Usage: sbatch DCoT_Baseline_Direct.slurm --dataset-name aqua|gsm8k|strategyqa --model-name HF_ID --run-id N [options]"
+  echo "Usage: sbatch DCoT_Baseline_Direct.slurm --dataset-name aqua|gsm8k|strategyqa|ai2arc|gpqa --model-name HF_ID --run-id N [options]"
   echo "Options:"
   echo "  --tokenizer-name HF_ID"
   echo "  --test-file PATH"
@@ -121,6 +121,18 @@ case "${DATASET_NAME,,}" in
       "$PROJECT_ROOT/Baseline/data/StrategyQA/test.jsonl"
       "$PROJECT_ROOT/data/strategyqa/test.json"
       "$PROJECT_ROOT/data/StrategyQA/test.json"
+    )
+    ;;
+  ai2arc)
+    DATASET_CANON="AI2ARC"
+    CANDIDATE_TEST_FILES=(
+      "$PROJECT_ROOT/Baseline/data/AI2ARC/gsm8k_format_test.jsonl"
+    )
+    ;;
+  gpqa)
+    DATASET_CANON="GPQA"
+    CANDIDATE_TEST_FILES=(
+      "$PROJECT_ROOT/Baseline/data/GPQA/gsm8k_format_test.jsonl"
     )
     ;;
   *)
