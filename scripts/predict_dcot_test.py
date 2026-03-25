@@ -301,7 +301,7 @@ def resolve_dtype_name(dtype_name: str):
 
 def parse_args():
     p = argparse.ArgumentParser()
-    p.add_argument("--dataset", choices=["AQUA", "GSM8K", "StrategyQA", "AI2ARC", "GPQA"], required=True)
+    p.add_argument("--dataset", choices=["AQUA", "GSM8K", "StrategyQA", "AI2ARC", "GPQA", "MATH"], required=True)
     p.add_argument("--test-file", type=Path, required=True)
     p.add_argument("--output-file", type=Path, required=True)
 

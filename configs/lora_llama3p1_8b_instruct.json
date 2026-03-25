@@ -1,0 +1,30 @@
+{
+  "model_name": "meta-llama/Llama-3.1-8B-Instruct",
+  "tokenizer_name": "meta-llama/Llama-3.1-8B-Instruct",
+  "max_length": 2048,
+  "learning_rate": 0.0001,
+  "weight_decay": 0.01,
+  "num_epochs": 2.0,
+  "batch_size": 2,
+  "grad_accum": 8,
+  "warmup_ratio": 0.03,
+  "logging_steps": 25,
+  "save_steps": 250,
+  "optim": "adamw_torch",
+  "bf16": true,
+  "use_lora": true,
+  "lora_r": 64,
+  "lora_alpha": 128,
+  "lora_dropout": 0.05,
+  "lora_target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj"
+  ],
+  "lr_scheduler_type": "linear",
+  "max_grad_norm": 1.0,
+  "seed": 42,
+  "pad_to_max": false,
+  "max_samples": null
+}

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ -z "${DATASET_NAME:-}" ]]; then
-  echo "DATASET_NAME is required (AQUA|GSM8K|StrategyQA|AI2ARC|GPQA)." >&2
+  echo "DATASET_NAME is required (AQUA|GSM8K|StrategyQA|AI2ARC|GPQA|MATH)." >&2
   exit 2
 fi
 if [[ -z "${SFT_TYPE:-}" ]]; then
@@ -221,6 +221,15 @@ if [[ -z "$DATA_FILE" ]]; then
         "$PROJECT_ROOT/Baseline/data/GPQA/gsm8k_format_train.jsonl"
       )
       ;;
+    MATH)
+      CANDIDATES=(
+        "$PROJECT_ROOT/Baseline/data/MATH/results_dcot_teacher_gpt51.jsonl"
+        "$PROJECT_ROOT/Baseline/data/MATH/results_dcot_teacher.jsonl"
+        "$PROJECT_ROOT/Baseline/data/MATH/gsm8k_format_train_10000.jsonl"
+        "$PROJECT_ROOT/Baseline/data/MATH/gsm8k_format_train.jsonl"
+        "$PROJECT_ROOT/Baseline/data/MATH/gsm8k_format.jsonl"
+      )
+      ;;
     *)
       echo "Unsupported dataset: $DATASET_NAME" >&2
       exit 2
@@ -341,6 +350,12 @@ if [[ "$PREDICT" == true ]]; then
       GPQA)
         CANDIDATE_TEST_FILES=(
           "$PROJECT_ROOT/Baseline/data/GPQA/gsm8k_format_test.jsonl"
+        )
+        ;;
+      MATH)
+        CANDIDATE_TEST_FILES=(
+          "$PROJECT_ROOT/Baseline/data/MATH/gsm8k_format_test_5000.jsonl"
+          "$PROJECT_ROOT/Baseline/data/MATH/gsm8k_format_test.jsonl"
         )
         ;;
       *)
