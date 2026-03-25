@@ -7,7 +7,7 @@ mkdir -p logs
 
 SLURM_SCRIPT="${SLURM_SCRIPT:-$PROJECT_ROOT/MATH_DCoT_LoRA.slurm}"
 RUNS_PER_MODEL="${RUNS_PER_MODEL:-10}"
-START_SEED="${START_SEED:-42}"
+FIXED_SEED="${FIXED_SEED:-42}"
 
 TRAIN_FILE="${TRAIN_FILE:-$PROJECT_ROOT/Baseline/data/MATH/results_dcot_teacher_gpt51.jsonl}"
 TEST_FILE="${TEST_FILE:-$PROJECT_ROOT/Baseline/data/MATH/gsm8k_format_test_5000.jsonl}"
@@ -47,11 +47,10 @@ for spec in "${MODEL_SPECS[@]}"; do
 
   for run_id in $(seq 1 "$RUNS_PER_MODEL"); do
     run_tag="$(printf "run_%02d" "$run_id")"
-    seed=$((START_SEED + run_id - 1))
     output_root="${OUTPUT_BASE%/}/${student_key}/${run_tag}"
     pred_root="${PRED_BASE%/}/${student_key}/${run_tag}"
 
-    echo "[SUBMIT] model=${model_name} run=${run_tag} seed=${seed}"
+    echo "[SUBMIT] model=${model_name} run=${run_tag} seed=${FIXED_SEED}"
     sbatch "$SLURM_SCRIPT" \
       --student-model "$student_key" \
       --model-name "$model_name" \
@@ -63,11 +62,11 @@ for spec in "${MODEL_SPECS[@]}"; do
       --pred-overwrite \
       --pred-num-cots "$PRED_NUM_COTS" \
       --pred-max-new-tokens "$PRED_MAX_NEW_TOKENS" \
-      --seed "$seed" \
+      --seed "$FIXED_SEED" \
       --config_file "$config_file"
 
     submitted=$((submitted + 1))
   done
 done
 
-echo "[DONE] submitted_jobs=${submitted} runs_per_model=${RUNS_PER_MODEL} models=${#MODEL_SPECS[@]}"
+echo "[DONE] submitted_jobs=${submitted} runs_per_model=${RUNS_PER_MODEL} models=${#MODEL_SPECS[@]} seed=${FIXED_SEED}"
